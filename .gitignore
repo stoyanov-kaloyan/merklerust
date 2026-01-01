@@ -1,0 +1,15 @@
+# Rust build artifacts
+/target
+**/target
+
+# Node.js
+**/node_modules
+
+# napi-rs generated files
+*.node
+/index.js
+/index.d.ts
+
+# OS files
+.DS_Store
+
