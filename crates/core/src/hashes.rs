@@ -1,3 +1,5 @@
+use sha3::{Digest, Keccak256};
+
 // import { encode } from '@metamask/abi-utils';
 // import { keccak256 as _keccak256 } from 'ethereum-cryptography/keccak';
 // import { BytesLike, HexString, toHex, toBytes, concat, compare } from './bytes';
@@ -18,3 +20,11 @@
 // }
 
 // TODO: implement hashes
+pub fn keccak256(input: &[u8]) -> [u8; 32] {
+    let mut hasher = Keccak256::new();
+    hasher.update(input);
+    let result = hasher.finalize();
+    let mut hash = [0u8; 32];
+    hash.copy_from_slice(&result);
+    hash
+}

@@ -21,13 +21,16 @@
         "build": "napi build --manifest-path crates/node/Cargo.toml --platform --js index.js --dts index.d.ts --esm --release --output-dir .",
         "test": "cargo test --manifest-path crates/core/Cargo.toml && cargo test --manifest-path crates/node/Cargo.toml && vitest run",
         "test:rust": "cargo test --manifest-path crates/core/Cargo.toml && cargo test --manifest-path crates/node/Cargo.toml",
-        "test:js": "vitest run"
+        "test:js": "vitest run",
+        "bench": "vitest bench"
     },
     "devDependencies": {
         "@fast-check/vitest": "^0.2.4",
         "@napi-rs/cli": "^3.5.1",
+        "@openzeppelin/merkle-tree": "^1.0.0",
         "@types/node": "^25.0.3",
         "fast-check": "^4.5.3",
+        "merkletreejs": "^0.4.0",
         "typescript": "^5.3.0",
         "vitest": "^4.0.16"
     }

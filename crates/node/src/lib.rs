@@ -1,12 +1,9 @@
+use merklerust_core::hashes::keccak256;
 use napi_derive::napi;
-use sha2::{Digest, Sha256};
 
 fn default_node_hash(a: &[u8], b: &[u8]) -> Vec<u8> {
     let (left, right) = if a <= b { (a, b) } else { (b, a) };
-    let mut hasher = Sha256::new();
-    hasher.update(left);
-    hasher.update(right);
-    hasher.finalize().to_vec()
+    keccak256(&[left, right].concat()).to_vec()
 }
 
 fn catch_unwind_result<T, F>(f: F) -> napi::Result<T>
@@ -33,11 +30,6 @@ pub struct JsMultiProof {
     pub leaves: Vec<Vec<u8>>,
     pub proof: Vec<Vec<u8>>,
     pub proof_flags: Vec<bool>,
-}
-
-#[napi]
-pub fn hello() -> String {
-    "hello from napi".to_string()
 }
 
 #[napi]

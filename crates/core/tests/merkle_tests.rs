@@ -1,16 +1,13 @@
+use merklerust_core::hashes::keccak256;
 use merklerust_core::merkle::{
     get_multi_proof, get_proof, is_valid_merkle_tree, make_merkle_tree_bytes, process_multi_proof,
     process_proof, render_merkle_tree, Bytes,
 };
 use proptest::prelude::*;
-use sha2::{Digest, Sha256};
 
 fn node_hash(a: &[u8], b: &[u8]) -> Bytes {
     let (left, right) = if a <= b { (a, b) } else { (b, a) };
-    let mut hasher = Sha256::new();
-    hasher.update(left);
-    hasher.update(right);
-    hasher.finalize().to_vec()
+    keccak256(&[left, right].concat()).to_vec()
 }
 
 proptest! {
