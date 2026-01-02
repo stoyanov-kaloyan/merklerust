@@ -1,10 +1,8 @@
 /// Binary data (owned)
 pub type Bytes = Vec<u8>;
 
-/// Returns true if the provided slice has length 32 (a standard hash length like SHA-256).
-pub fn is_valid_merkle_node(data: &[u8]) -> bool {
-    data.len() == 32
-}
+/// Internal fixed-size hash (keccak-256 or SHA-256-sized)
+pub type Hash = [u8; 32];
 
 pub struct MultiProof {
     pub leaves: Vec<Bytes>,
@@ -20,6 +18,20 @@ impl MultiProof {
             proof_flags,
         }
     }
+}
+
+pub fn is_valid_merkle_node(data: &[u8]) -> bool {
+    data.len() == 32
+}
+
+fn slice_to_hash(s: &[u8]) -> Hash {
+    let mut out = [0u8; 32];
+    out.copy_from_slice(s);
+    out
+}
+
+fn hash_to_vec(h: &Hash) -> Vec<u8> {
+    h.to_vec()
 }
 
 fn left_child_index(index: usize) -> usize {
@@ -92,19 +104,22 @@ where
 pub fn get_proof(tree: &Vec<Bytes>, leaf_index: usize) -> Vec<Bytes> {
     assert_leaf_node(tree.len(), leaf_index);
 
-    let mut proof = Vec::new();
+    // Convert tree to fixed-size hashes for internal processing
+    let hash_tree: Vec<Hash> = tree.iter().map(|n| slice_to_hash(n.as_slice())).collect();
+
+    let mut proof_hashes: Vec<Hash> = Vec::new();
     let mut index = leaf_index;
 
     while index > 0 {
         let s = sibling_index(index);
-        if s < tree.len() {
-            proof.push(tree[s].clone());
+        if s < hash_tree.len() {
+            proof_hashes.push(hash_tree[s]);
         }
 
         index = parent_index(index);
     }
 
-    proof
+    proof_hashes.iter().map(|h| hash_to_vec(h)).collect()
 }
 
 /// Process a standard single-proof: start from `leaf` and apply the `node_hash` reductions
@@ -119,20 +134,24 @@ where
     for p in proof.iter() {
         assert_merkle_node(&p);
     }
-
-    let mut computed_hash: Bytes = leaf.to_vec();
+    // Work with fixed-size `Hash` internally to avoid heap allocations per node
+    let mut computed: Hash = slice_to_hash(leaf);
 
     for p in proof.iter() {
-        // Use deterministic ordering of the pair so callers don't need to know tree index.
-        // Compare bytewise and always pass the smaller-first to `node_hash`.
-        computed_hash = if computed_hash.as_slice() <= p.as_slice() {
-            node_hash(computed_hash.as_slice(), p.as_slice())
+        let p_hash = slice_to_hash(p.as_slice());
+        let parent_bytes = if computed.as_slice() <= p_hash.as_slice() {
+            node_hash(&computed[..], &p_hash[..])
         } else {
-            node_hash(p.as_slice(), computed_hash.as_slice())
+            node_hash(&p_hash[..], &computed[..])
         };
+        assert!(
+            parent_bytes.len() == 32,
+            "node_hash must produce 32-byte hash"
+        );
+        computed = slice_to_hash(&parent_bytes);
     }
 
-    computed_hash
+    hash_to_vec(&computed)
 }
 
 pub fn get_multi_proof(tree: &Vec<Bytes>, mut indices: Vec<usize>) -> MultiProof {
@@ -148,8 +167,11 @@ pub fn get_multi_proof(tree: &Vec<Bytes>, mut indices: Vec<usize>) -> MultiProof
         );
     }
 
+    // Convert tree to fixed-size hashes for internal processing
+    let hash_tree: Vec<Hash> = tree.iter().map(|n| slice_to_hash(n.as_slice())).collect();
+
     let mut stack = indices.clone(); // copy
-    let mut proof: Vec<Bytes> = Vec::new();
+    let mut proof_hashes: Vec<Hash> = Vec::new();
     let mut proof_flags: Vec<bool> = Vec::new();
 
     while !stack.is_empty() && stack[0] > 0 {
@@ -162,16 +184,19 @@ pub fn get_multi_proof(tree: &Vec<Bytes>, mut indices: Vec<usize>) -> MultiProof
             stack.remove(0); // consume from the stack
         } else {
             proof_flags.push(false);
-            proof.push(tree[s].clone());
+            proof_hashes.push(hash_tree[s]);
         }
         stack.push(p);
     }
 
     if indices.is_empty() {
-        proof.push(tree[0].clone());
+        proof_hashes.push(hash_tree[0]);
     }
 
-    let leaves: Vec<Bytes> = indices.iter().map(|&i| tree[i].clone()).collect();
+    let leaves_hashes: Vec<Hash> = indices.iter().map(|&i| hash_tree[i]).collect();
+
+    let leaves: Vec<Bytes> = leaves_hashes.iter().map(|h| hash_to_vec(h)).collect();
+    let proof: Vec<Bytes> = proof_hashes.iter().map(|h| hash_to_vec(h)).collect();
 
     MultiProof::new(leaves, proof, proof_flags)
 }
@@ -191,9 +216,19 @@ where
     {
         panic!("Invariant error");
     }
-
-    let mut stack: VecDeque<Bytes> = VecDeque::from(mp.leaves.clone());
-    let mut proof: VecDeque<Bytes> = VecDeque::from(mp.proof.clone());
+    // Convert MultiProof buffers to fixed-size hashes for internal processing
+    let mut stack: VecDeque<Hash> = VecDeque::from(
+        mp.leaves
+            .iter()
+            .map(|l| slice_to_hash(l))
+            .collect::<Vec<_>>(),
+    );
+    let mut proof: VecDeque<Hash> = VecDeque::from(
+        mp.proof
+            .iter()
+            .map(|p| slice_to_hash(p))
+            .collect::<Vec<_>>(),
+    );
 
     for &flag in mp.proof_flags.iter() {
         let a = stack
@@ -209,7 +244,12 @@ where
                 .unwrap_or_else(|| panic!("Invariant error"))
         };
 
-        stack.push_back(node_hash(&a, &b));
+        let parent_bytes = node_hash(&a[..], &b[..]);
+        assert!(
+            parent_bytes.len() == 32,
+            "node_hash must produce 32-byte hash"
+        );
+        stack.push_back(slice_to_hash(&parent_bytes));
     }
 
     if stack.len() + proof.len() != 1 {
@@ -217,9 +257,9 @@ where
     }
 
     if !stack.is_empty() {
-        stack.pop_front().unwrap()
+        hash_to_vec(&stack.pop_front().unwrap())
     } else {
-        proof.pop_front().unwrap()
+        hash_to_vec(&proof.pop_front().unwrap())
     }
 }
 
@@ -233,34 +273,73 @@ where
         assert_merkle_node(l);
     }
 
-    make_merkle_tree(leaves, |a, b| node_hash(&a, &b))
+    // Convert input leaves to fixed-size `Hash` arrays to avoid per-node heap allocations
+    let hash_leaves: Vec<Hash> = leaves.iter().map(|l| slice_to_hash(l.as_slice())).collect();
+    // internal builder that works with `Hash`
+    fn build_hash_tree<F2>(leaves: Vec<Hash>, node_hash: F2) -> Vec<Hash>
+    where
+        F2: Fn(&[u8], &[u8]) -> Bytes,
+    {
+        assert!(!leaves.is_empty(), "Expected non-zero number of leaves");
+
+        let mut tree = vec![leaves[0]; 2 * leaves.len() - 1];
+        let tree_len = tree.len();
+
+        for (i, leaf) in leaves.iter().enumerate() {
+            tree[tree_len - 1 - i] = *leaf;
+        }
+        for i in (0..(tree_len - leaves.len())).rev() {
+            let left = tree[left_child_index(i)];
+            let right = tree[right_child_index(i)];
+            let parent_bytes = node_hash(&left[..], &right[..]);
+            assert!(
+                parent_bytes.len() == 32,
+                "node_hash must produce 32-byte hash"
+            );
+            tree[i] = slice_to_hash(&parent_bytes);
+        }
+
+        tree
+    }
+
+    let built: Vec<Hash> = build_hash_tree(hash_leaves, node_hash);
+    // Convert back to Vec<Bytes> for existing public API
+    built.iter().map(|h| hash_to_vec(h)).collect()
 }
 
 pub fn is_valid_merkle_tree<F>(tree: &Vec<Bytes>, node_hash: F) -> bool
 where
     F: Fn(&[u8], &[u8]) -> Bytes,
 {
-    for (i, node) in tree.iter().enumerate() {
-        if !is_valid_merkle_node(node) {
+    // Convert to fixed-size hashes for internal checks
+    for n in tree.iter() {
+        if !is_valid_merkle_node(n) {
             return false;
         }
+    }
+    let hash_tree: Vec<Hash> = tree.iter().map(|n| slice_to_hash(n)).collect();
 
+    for (i, node_hash_val) in hash_tree.iter().enumerate() {
         let l = left_child_index(i);
         let r = right_child_index(i);
 
-        if r >= tree.len() {
-            if l < tree.len() {
+        if r >= hash_tree.len() {
+            if l < hash_tree.len() {
                 return false;
             }
         } else {
-            let expected_node = node_hash(&tree[l], &tree[r]);
-            if *node != expected_node {
+            let expected_node_bytes = node_hash(&hash_tree[l][..], &hash_tree[r][..]);
+            if expected_node_bytes.len() != 32 {
+                return false;
+            }
+            let expected_hash = slice_to_hash(&expected_node_bytes);
+            if *node_hash_val != expected_hash {
                 return false;
             }
         }
     }
 
-    tree.len() > 0
+    hash_tree.len() > 0
 }
 
 pub fn render_merkle_tree(tree: &Vec<Bytes>) -> String {
