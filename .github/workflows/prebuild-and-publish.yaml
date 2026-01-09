@@ -1,0 +1,129 @@
+name: Build prebuilds & publish
+
+on:
+    push:
+        tags:
+            - "v*" # publish on semantic version tags like v1.2.3
+
+jobs:
+    build:
+        name: Build (matrix)
+        runs-on: ${{ matrix.os }}
+        strategy:
+            matrix:
+                os: [ubuntu-latest, windows-latest, macos-latest]
+                node: [20.x]
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ matrix.node }}
+
+            - name: Setup Rust
+              uses: actions-rs/toolchain@v1
+              with:
+                  toolchain: stable
+                  override: true
+
+            - name: Install deps
+              # Use `npm ci` when a lockfile exists, otherwise fall back to `npm install`
+              run: npm ci || npm install
+
+            - name: Build native binding
+              env:
+                  # ensure release build
+                  CARGO_HOME: ${{ runner.temp }}/cargo
+              run: |
+                  npm run build
+              # Expect build produces a platform-specific .node (e.g. index.win32-x64-msvc.node)
+
+            - name: Gather .node artifacts (Unix)
+              if: runner.os != 'Windows'
+              # Copy produced .node into artifact folder; the napi build usually emits a platform-named file
+              run: |
+                  mkdir -p artifacts
+                  # debug listing to help troubleshooting
+                  echo "Listing repo root files:" && ls -la || true
+                  # Try to find the .node file produced in repo root
+                  fn=$(ls *.node 2>/dev/null || true)
+                  if [ -z "$fn" ]; then
+                    echo "No .node produced; failing"
+                    ls -la
+                    exit 1
+                  fi
+                  cp $fn artifacts/
+                  echo "Copied $fn"
+
+            - name: Gather .node artifacts (Windows)
+              if: runner.os == 'Windows'
+              shell: pwsh
+              run: |
+                  New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+                  Write-Host "Listing repo root files:"; Get-ChildItem -Force
+                  $fn = Get-ChildItem -Path . -Filter *.node -File -ErrorAction SilentlyContinue | Select-Object -First 1
+                  if (-not $fn) {
+                    Write-Host "No .node produced; failing"
+                    Get-ChildItem -Force
+                    exit 1
+                  }
+                  Copy-Item $fn.FullName -Destination artifacts\
+                  Write-Host "Copied $($fn.Name)"
+
+            - name: Upload artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: prebuild-${{ matrix.os }}
+                  path: artifacts/*.node
+
+    publish:
+        name: Publish package with prebuilds
+        runs-on: ubuntu-latest
+        needs: build
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Download artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  name: prebuild-ubuntu-latest
+                  path: prebuilds/ubuntu
+            - uses: actions/download-artifact@v4
+              with:
+                  name: prebuild-windows-latest
+                  path: prebuilds/windows
+            - uses: actions/download-artifact@v4
+              with:
+                  name: prebuild-macos-latest
+                  path: prebuilds/macos
+
+            - name: Copy .node files into package root
+              run: |
+                  # Move all found .node files to repo root (or where index.js expects them)
+                  mkdir -p prebuilds_all
+                  find prebuilds -name '*.node' -type f -exec cp {} prebuilds_all/ \;
+                  cp prebuilds_all/*.node .
+
+            - name: Show package files
+              run: ls -la
+
+            - name: Setup Node for publish
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  registry-url: https://registry.npmjs.org/
+
+            - name: Authenticate to npm
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+              run: |
+                  echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
+
+            - name: Verify package contents (dry-run)
+              run: npm publish --dry-run
+
+            - name: Publish to npm
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+              run: npm publish --access public
