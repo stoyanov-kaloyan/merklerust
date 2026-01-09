@@ -10,40 +10,27 @@ import {
     processMultiProof as rustProcessMultiProof,
 } from "../index.js";
 
-// OpenZeppelin's JS implementation
 import { StandardMerkleTree } from "@openzeppelin/merkle-tree";
 
-// merkletreejs implementation
 import { MerkleTree } from "merkletreejs";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function generateLeaves(count: number): number[][] {
     return Array.from({ length: count }, () => Array.from(randomBytes(32)));
 }
 
 function generateOzLeaves(count: number): [string][] {
-    // OZ expects an array of values that get ABI-encoded
-    // For fair comparison, we use hex strings of 32 bytes
     return Array.from({ length: count }, () => [
         "0x" + randomBytes(32).toString("hex"),
     ]);
 }
 
 function generateBufferLeaves(count: number): Buffer[] {
-    // merkletreejs works with Buffers
     return Array.from({ length: count }, () => randomBytes(32));
 }
 
 function sha256(data: Buffer): Buffer {
     return createHash("sha256").update(data).digest();
 }
-
-// ---------------------------------------------------------------------------
-// Benchmarks
-// ---------------------------------------------------------------------------
 
 const SIZES = [100, 1_000, 10_000, 100_000];
 
@@ -77,7 +64,6 @@ for (const size of SIZES) {
             sortPairs: true,
         });
 
-        // Get a leaf index in the middle
         const leafIndex = Math.floor(size / 2);
         const rustTreeIndex = rustTree.length - 1 - leafIndex;
 
@@ -136,9 +122,8 @@ for (const size of SIZES) {
     });
 }
 
-// Multi-proof benchmarks (smaller sizes due to complexity)
 const MULTI_SIZES = [100, 1_000, 10_000];
-const PROOF_SUBSET_RATIO = 0.1; // 10% of leaves
+const PROOF_SUBSET_RATIO = 0.1;
 
 for (const size of MULTI_SIZES) {
     const subsetSize = Math.max(1, Math.floor(size * PROOF_SUBSET_RATIO));
@@ -152,7 +137,6 @@ for (const size of MULTI_SIZES) {
             sortPairs: true,
         });
 
-        // Random indices for multi-proof
         const leafIndices = Array.from({ length: subsetSize }, (_, i) =>
             Math.floor((i * size) / subsetSize)
         );
@@ -166,8 +150,6 @@ for (const size of MULTI_SIZES) {
         bench("merkletreejs (JS)", () => {
             mjsTree.getMultiProof(mjsLeafSubset);
         });
-
-        // Note: OZ doesn't have built-in multi-proof
     });
 
     describe(`Multi-proof verification (${size.toLocaleString()} leaves, ${subsetSize} proofs)`, () => {
@@ -205,7 +187,5 @@ for (const size of MULTI_SIZES) {
         //         mjsProofFlags
         //     );
         // });
-
-        // Note: OZ doesn't have built-in multi-proof verification
     });
 }

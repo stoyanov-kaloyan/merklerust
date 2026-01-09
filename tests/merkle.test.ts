@@ -12,22 +12,12 @@ import {
     type JsMultiProof,
 } from "../index.js";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** A 32-byte node (all zeros). */
 const ZERO_NODE: number[] = Array.from({ length: 32 }, () => 0);
 
-/** Compare two number[] byte arrays for equality. */
 function bytesEqual(a: number[], b: number[]): boolean {
     if (a.length !== b.length) return false;
     return a.every((v, i) => v === b[i]);
 }
-
-// ---------------------------------------------------------------------------
-// Arbitraries (matching the original TS test file)
-// ---------------------------------------------------------------------------
 
 const leaf = fc
     .uint8Array({ minLength: 32, maxLength: 32 })
@@ -40,12 +30,7 @@ const leavesAndIndices = leaves.chain((xs) =>
     fc.tuple(fc.constant(xs), fc.uniqueArray(fc.nat({ max: xs.length - 1 })))
 );
 
-// Configure run count based on CI environment
 fc.configureGlobal({ numRuns: process.env.CI ? 10000 : 100 });
-
-// ---------------------------------------------------------------------------
-// Property-based tests
-// ---------------------------------------------------------------------------
 
 describe("Property-based tests", () => {
     // @ts-ignore
@@ -88,10 +73,6 @@ describe("Property-based tests", () => {
         }
     );
 });
-
-// ---------------------------------------------------------------------------
-// Unit tests (matching the original TS test file)
-// ---------------------------------------------------------------------------
 
 describe("Error cases", () => {
     it("zero leaves", () => {

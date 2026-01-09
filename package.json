@@ -1,11 +1,17 @@
 {
-    "name": "@yourorg/merklerust",
-    "version": "0.1.0",
+    "name": "merklerust",
+    "version": "0.0.1",
     "description": "Rust-powered Merkle trees & proofs for Node.js",
     "type": "module",
     "main": "./index.cjs",
     "module": "./index.js",
     "types": "./index.d.ts",
+    "author": "Kaloyan Stoyanov",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/stoyanov-kaloyan/merklerust.git"
+    },
     "exports": {
         "import": "./index.js",
         "require": "./index.cjs"
